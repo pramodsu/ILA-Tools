@@ -181,4 +181,234 @@ namespace ila
         S->pop();
         return result;
     }
+
+    std::string Uclid5Translator::getTranslation(NodeRef& node)
+    {
+	//Completely ripped off from smt.cpp
+	std::string program;
+	program.clear();
+	nptr_t nptr(node.node);
+	auto n = nptr.get();
+
+	// handle the various types.
+        const BoolVar* boolvar = NULL; 
+        const BoolConst* boolconst = NULL;
+        const BoolOp* boolop = NULL;
+        const BoolChoice* bchoiceop = NULL;
+
+        const BitvectorVar* bvvar = NULL;
+        const BitvectorConst* bvconst = NULL;
+        const BitvectorOp* bvop = NULL;
+        const BitvectorChoice* bvchoiceop = NULL;
+        const BVInRange* inrangeop = NULL;
+
+        const MemVar* memvar = NULL;
+        const MemConst* memconst = NULL;
+        const MemOp*  memop = NULL;
+        const MemChoice* mchoiceop = NULL;
+
+        const FuncVar* funcvar = NULL;
+
+        //log2("Z3ExprAdapter._populateExprMap") << "entering: " << *n << std::endl;
+
+        //// booleans ////
+        if ((boolvar = dynamic_cast<const BoolVar*>(n))) {
+		program = nptr->getName();
+//            	z3::expr r = getBoolVarExpr(boolvar);
+//            	if (simplify) r = r.simplify();
+//            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if ((boolconst = dynamic_cast<const BoolConst*>(n))) {
+		if (boolconst->val()) 
+			program = "true";
+		else
+			program = "false";
+//            	z3::expr r = c.bool_val(boolconst->val());
+//            	if (simplify) r = r.simplify();
+//            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if ((boolop = dynamic_cast<const BoolOp*>(n))) {
+		switch(boolop->getOp()) {
+			case BoolOp::INVALID	: { program = "INVALID"; break; }
+			case BoolOp::NOT	: { NodeRef a1(boolop->arg(0)); program = "!(" + getTranslation(a1) + ")"; break; }
+			case BoolOp::AND 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " && " + getTranslation(a2) + ")"; break;}
+			case BoolOp::OR 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " || " + getTranslation(a2) + ")"; break;}
+			case BoolOp::XOR 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " ^ " + getTranslation(a2) + ")"; break;}
+			case BoolOp::XNOR 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "!(" + getTranslation(a1) + " ^ " + getTranslation(a2) + ")"; break; }
+			case BoolOp::NAND 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "!(" + getTranslation(a1) + " && " + getTranslation(a2) + ")"; break; }
+			case BoolOp::NOR 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "!(" + getTranslation(a1) + " || " + getTranslation(a2) + ")"; break; }
+	 		case BoolOp::IMPLY 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " ==> " + getTranslation(a2) + ")" ; break; }
+			case BoolOp::ULT 	:
+			case BoolOp::SLT 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " < " + getTranslation(a2) + ")"; break; }
+			case BoolOp::UGT 	:
+			case BoolOp::SGT 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " > " + getTranslation(a2) + ")" ; break; }
+
+			case BoolOp::ULE 	:
+			case BoolOp::SLE 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " <= " + getTranslation(a2) + ")"; break; }
+			case BoolOp::UGE 	:
+			case BoolOp::SGE 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " >= " + getTranslation(a2) + ")"; break; }
+			case BoolOp::EQUAL 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " == " + getTranslation(a2) + ")"; break; }
+ 			case BoolOp::IF 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1)); NodeRef a3(boolop->arg(2));
+						  program = "if (" + getTranslation(a1) + ")" + " then { " + getTranslation(a2) + " }" 							 +  " else { " + getTranslation(a3) + " }"; break;}
+			case BoolOp::DISTINCT 	: { NodeRef a1(boolop->arg(0)); NodeRef a2(boolop->arg(1));
+						  program = "(" + getTranslation(a1) + " != " + getTranslation(a2) + ")"; break; }
+			default:	{ program = "Unsupported"; }
+		}
+
+
+
+//    		z3::expr r = getBoolOpExpr(boolop);
+//    	        if (simplify) r = r.simplify();
+//        	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if((bchoiceop = dynamic_cast<const BoolChoice*>(n))) {
+	 	program = "BChoiceUnsupported";
+//              z3::expr r = getChoiceExpr(bchoiceop);
+//             if (simplify) r = r.simplify();
+//            log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            exprmap.insert({n, r});
+
+        //// bitvectors ////
+        } else if((bvvar = dynamic_cast<const BitvectorVar*>(n))) {
+	      	program = nptr->getName();
+//            z3::expr r = getBitvectorVarExpr(bvvar);
+//            if (simplify) r = r.simplify();
+//            log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            exprmap.insert({n, r});
+        } else if((bvconst = dynamic_cast<const BitvectorConst*>(n))) {
+		program = bvconst->vstr() + "bv" + std::to_string(nptr->type.bitWidth);
+//            	z3::expr r = c.bv_val(bvconst->vstr().c_str(), bvconst->type.bitWidth);
+//            	if (simplify) r = r.simplify();
+//            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if ((bvop = dynamic_cast<const BitvectorOp*>(n))) {
+		switch(bvop->getOp()) {
+			case BitvectorOp::INVALID 	: { program = "InvalidBVOP"; break; }
+			case BitvectorOp::NEGATE	: { NodeRef a1(bvop->arg(0)); program = "~(" + getTranslation(a1) + ")"; break; }
+			case BitvectorOp::COMPLEMENT	: { NodeRef a1(bvop->arg(0)); program = "~(" + getTranslation(a1) + ")"; break; }
+			case BitvectorOp::LROTATE	: { NodeRef a1(bvop->arg(0)); program = "lrot(" + getTranslation(a1) + ")"; break; }
+			case BitvectorOp::RROTATE	: { NodeRef a1(bvop->arg(0)); program = "rrot(" + getTranslation(a1) + ")"; break; }
+			case BitvectorOp::Z_EXT	: { NodeRef a1(bvop->arg(0)); program = "zeroext(" + getTranslation(a1) + ")"; break; }
+			case BitvectorOp::S_EXT	: { NodeRef a1(bvop->arg(0)); program = "signext(" + getTranslation(a1) + ")"; break; }
+			case BitvectorOp::EXTRACT	: { NodeRef a1(bvop->arg(0)); program = "extract(" + getTranslation(a1) + ")"; break; }
+			case BitvectorOp::ADD 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " + " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::SUB 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " - " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::AND 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " & " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::OR 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " | " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::XOR 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " ^ " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::XNOR 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "~(" + getTranslation(a1) + " ^ " + getTranslation(a2) + ")";  break;}
+			case BitvectorOp::NAND 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "~(" + getTranslation(a1) + " & " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::NOR 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "~(" + getTranslation(a1) + " | " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::SDIV 	: 
+			case BitvectorOp::UDIV 	: { program = "DIVNotSupported" ; break;}
+			
+			case BitvectorOp::SREM 	:
+			case BitvectorOp::UREM	: { program = "RemNotSupported" ; break;}
+			case BitvectorOp::SMOD 	: { program = "SmodNotSupported" ; break;}
+			case BitvectorOp::SHL 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1));
+						  program = "shl(" + getTranslation(a1) + "," + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::LSHR 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1));
+						  program = "lshr(" + getTranslation(a1) + "," + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::ASHR 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1));
+						  program = "ashr(" + getTranslation(a1) + "," + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::MUL 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = getTranslation(a1) + " * " + getTranslation(a2); break;}
+			case BitvectorOp::CONCAT 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = "(" + getTranslation(a1) + " ++ " + getTranslation(a2) + ")"; break;}
+			case BitvectorOp::GET_BIT    : { program = "GETBitUnsupported"; break; }
+			case BitvectorOp::READMEM 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); 
+						  program = getTranslation(a1) + "[" + getTranslation(a2) + "]"; break;}
+			case BitvectorOp::READMEMBLOCK : { program = "READMEMBLOCKUnsupported"; break; }
+	 		case BitvectorOp::IF 	: { NodeRef a1(bvop->arg(0)); NodeRef a2(bvop->arg(1)); NodeRef a3(bvop->arg(2));
+						  program = "if (" + getTranslation(a1) + ")" + " then { " + getTranslation(a2) + " }" +
+						  " else { " + getTranslation(a3) + " }"; break;}
+			case BitvectorOp::APPLY_FUNC :
+			default: 	{ program = "Unsupported"; }
+		}	  
+//            	z3::expr r = getBvOpExpr(bvop);
+//            	if (simplify) r = r.simplify();
+//            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if ((bvchoiceop = dynamic_cast<const BitvectorChoice*>(n))) {
+		program = "BvChoiceUnsuported";
+//            	z3::expr r = getChoiceExpr(bvchoiceop);
+//            	if (simplify) r = r.simplify();
+//            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if ((inrangeop = dynamic_cast<const BVInRange*>(n))) {
+		program = "BVInrangeUnsupported";
+//            	z3::expr r = getBVInRangeExpr(inrangeop);
+//            	if (simplify) r = r.simplify();
+//           	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+
+        //// memories ////
+        } else if ((memvar = dynamic_cast<const MemVar*>(n))) {
+	      	program = nptr->getName();
+//            	z3::expr r = getMemVarExpr(memvar);
+//            	if (simplify) r = r.simplify();
+//            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if ((memconst = dynamic_cast<const MemConst*>(n))) {
+		program = "MemConstNotSupported";
+//            	z3::expr r = memconst->memvalues.toZ3(c);
+//            	if (simplify) r = r.simplify();
+//            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+//            	exprmap.insert({n, r});
+        } else if ((memop = dynamic_cast<const MemOp*>(n))) {
+	     	switch(memop->getOp()) {
+			case MemOp::INVALID 	: { program = "InvalidMemOp"; break; }
+			case MemOp::STORE	: { NodeRef a1(memop->arg(0)); NodeRef a2(memop->arg(1)); NodeRef a3(memop->arg(2));
+						program = getTranslation(a1) + "[" + getTranslation(a2) + "->" + getTranslation(a3) + "]"; }
+			case MemOp::ITE 	: { NodeRef a1(memop->arg(0)); NodeRef a2(memop->arg(1)); NodeRef a3(memop->arg(2));
+						  program = "if (" + getTranslation(a1) + ")" + " then { " + getTranslation(a2) + " }" +
+						  " else { " + getTranslation(a3) + " }"; break;}
+			case MemOp::STOREBLOCK :
+			default:	{ program = "InvalidMemOP"; }
+		}
+
+
+/*          	z3::expr r = getMemOpExpr(memop);
+            	if (simplify) r = r.simplify();
+            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+            	exprmap.insert({n, r}); */
+        } else if ((mchoiceop = dynamic_cast<const MemChoice*>(n))) {
+	    	program = "MemChoiceNotSupported";
+/*
+            	z3::expr r = getChoiceExpr(mchoiceop);
+            	if (simplify) r = r.simplify();
+            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+            	exprmap.insert({n, r});
+	*/
+        //// Functions ////
+        } else if ((funcvar = dynamic_cast<const FuncVar*>(n))) {
+	      	program = "FuncVarsNotSupported";
+/*            	z3::expr r = getFuncVarExpr(funcvar);
+            	//if (simplify) r = r.simplify();
+            	log2("Z3ExprAdapter._populateExprMap") << *n << " --> " << r << std::endl;
+            	exprmap.insert({n, r}); */
+        }
+	
+	return program;
+    }	
 }

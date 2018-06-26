@@ -81,6 +81,8 @@ namespace ila
         py::list getRegValues(const std::string& reg, int NUM_MAX_VALUES = 64);
         // get the simplified value of this expression.
         NodeRef* simplify(NodeRef& n);
+	// translate an ila ast into the corresponding uclid5 program
+	std::string getTranslation(NodeRef& node);
     };
 }
 

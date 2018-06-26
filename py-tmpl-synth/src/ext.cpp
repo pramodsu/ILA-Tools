@@ -517,6 +517,7 @@ BOOST_PYTHON_MODULE(ila)
         .def("initVar", &Uclid5Translator::initVar)
         .def("setVar", &Uclid5Translator::setVar)
         .def("getExprValues", &Uclid5Translator::getExprValues)
+	.def("getTranslation", &Uclid5Translator::getTranslation)
         .def("simplify", &Uclid5Translator::simplify,
                 return_value_policy<manage_new_object>());
     ;
