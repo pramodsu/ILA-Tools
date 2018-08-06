@@ -3,23 +3,31 @@ module main {
 	instance c2 : high_low_volatile();
 	
 	init {
-        //assume (forall (a : bv8) :: c1.IRAM[a] == c2.IRAM[a]);
-        assume (forall (a: bv8) :: ((18bv8 <= a && a < 28bv8) ==> (c1.IRAM[a] == c2.IRAM[a])));
-        assume (forall (a: bv8) :: ((18bv8 <= a && a < 28bv8) ==> ((c1.IRAM[a] != 0bv8) ==> (c1.IRAM[a - 10bv8] == c2.IRAM[a - 10bv8]))));
-        assume (c1.IRAM[29bv8] == c2.IRAM[29bv8]);
-        assume (c1.IRAM[28bv8] == c2.IRAM[28bv8]);
-        assume (c1.IRAM[30bv8] == c2.IRAM[30bv8]);
+        	//assume (forall (a : bv8) :: (c1.IRAM[a] == c2.IRAM[a]));
+		assume (forall (a: bv8) :: (((a >= 0bv8) && (a < 8bv8)) || ((a > 30bv8) && (a <= 255bv8))) ==> (c1.IRAM[a] == c2.IRAM[a]));
+		assume (forall (a: bv16) :: (c1.ROM[a] == c2.ROM[a]));
+        	assume (forall (a: bv8) :: (((18bv8 <= a) && (a <= 27bv8)) ==> (c1.IRAM[a] == c2.IRAM[a])));
+        	assume (forall (a: bv8) :: (((18bv8 <= a) && (a <= 27bv8)) ==> (((c1.IRAM[a] == 0bv8) && (c2.IRAM[a] == 0bv8)) ==> (c1.IRAM[a - 10bv8] == c2.IRAM[a - 10bv8]))));
+        	assume (c1.IRAM[29bv8] == c2.IRAM[29bv8]);
+        	assume (c1.IRAM[28bv8] == c2.IRAM[28bv8]);
+        	assume (c1.IRAM[30bv8] == c2.IRAM[30bv8]);
+		assume (c1.PSW == c2.PSW);	
 	}
 
 	next {
 		next (c1);
 		next (c2);
 	}
-
-	//invariant eq_mem: 
-	//	(forall (a : bv8) :: c1.IRAM[a] == c2.IRAM[a]);
+	invariant eq_ROM:
+		(forall (a: bv16) :: c1.ROM[a] == c2.ROM[a]);
+	invariant eq_mem:
+		(forall (a: bv8) :: (((a >= 0bv8) && (a < 8bv8)) || ((a > 30bv8) && (a <= 255bv8))) ==> (c1.IRAM[a] == c2.IRAM[a]));
+	invariant eq_regs: 
+		(forall (a : bv8) :: ((0bv8 <= a && a <= 7bv8) ==> (c1.IRAM[a] == c2.IRAM[a])));
 	invariant eq_inst:
-		(forall (a : bv16) :: ((0bv16 <= a && a <= 171bv16) ==> c1.ROM[a] == c2.ROM[a]));
+		(forall (a : bv16) :: ((0bv16 <= a && a <= 184bv16) ==> c1.ROM[a] == c2.ROM[a]));
+	invariant eq_dph_dpl:
+		((c1.DPH == c2.DPH) && (c1.DPL == c2.DPL));
 	invariant eq_PSW:
 		(c1.PSW == c2.PSW);
 	invariant eq_ACC:
@@ -32,10 +40,12 @@ module main {
 		(c1.current_state == c2.current_state);
 
 	// Redundant as the all the IRAM is covered by eq_mem
-    invariant eq_secret:
-        (forall (a: bv8) :: ((18bv8 <= a && a < 28bv8) ==> (c1.IRAM[a] == c2.IRAM[a])));
+    	invariant eq_secret:
+        (forall (a: bv8) :: ((18bv8 <= a) && (a < 28bv8)) ==> (c1.IRAM[a] == c2.IRAM[a]));
+//	invariant eq_secret_data:
+//		(forall (a: bv8) :: (((18bv8 <= a) && (a <= 27bv8)) ==> (((c1.IRAM[a] == 0bv8) && (c2.IRAM[a] == 0bv8)) ==> (c1.IRAM[a - 10bv8] == c2.IRAM[a - 10bv8]))));
 	invariant eq_secret_data:
-		(forall (a: bv8) :: ((18bv8 <= a && a < 28bv8) ==> ((c1.IRAM[a] != 0bv8) ==> (c1.IRAM[a - 10bv8] == c2.IRAM[a - 10bv8]))));
+		(forall (a: bv8) :: (((18bv8 <= a) && (a <= 27bv8) && (c1.IRAM[a] == 0bv8) && (c2.IRAM[a] == 0bv8)) ==> (c1.IRAM[a - 10bv8] == c2.IRAM[a - 10bv8])));
 	//invariant eq_data:
 	//	(forall (a: bv8) :: ((8bv8 <= a && a < 18bv8) ==> ((c1.IRAM[a] == c2.IRAM[a]))));
 	invariant eq_sum:
@@ -50,6 +60,6 @@ module main {
 		v = induction;
 		check;
 		print_results;
-		v.print_cex(c1.PC, c2.PC, c1.current_state, c2.current_state);
+		v.print_cex(c1.PC, c2.PC, c1.SP, c2.SP, c1.PSW[4:3], c2.PSW[4:3], c1.IRAM[(0bv3 ++ ((c1.PSW)[4:3] ++ 1bv3))], c2.IRAM[(0bv3 ++ ((c2.PSW)[4:3] ++ 1bv3))], c1.current_state, c2.current_state, c1.DPH, c2.DPH, c1.DPL, c2.DPL, c1.ACC, c2.ACC, c1.DPH ++ c1.DPL, c1.IRAM[8bv8], c1.IRAM[9bv8],c1.IRAM[10bv8],c1.IRAM[11bv8],c1.IRAM[12bv8],c1.IRAM[13bv8],c1.IRAM[14bv8],c1.IRAM[15bv8],c1.IRAM[16bv8],c1.IRAM[17bv8], c2.IRAM[8bv8], c2.IRAM[9bv8],c2.IRAM[10bv8],c2.IRAM[11bv8],c2.IRAM[12bv8],c2.IRAM[13bv8],c2.IRAM[14bv8],c2.IRAM[15bv8],c2.IRAM[16bv8],c2.IRAM[17bv8],c1.IRAM[18bv8], c1.IRAM[19bv8],c1.IRAM[20bv8],c1.IRAM[21bv8],c1.IRAM[22bv8],c1.IRAM[23bv8],c1.IRAM[24bv8],c1.IRAM[25bv8],c1.IRAM[26bv8],c1.IRAM[27bv8], c2.IRAM[18bv8], c2.IRAM[19bv8],c2.IRAM[20bv8],c2.IRAM[21bv8],c2.IRAM[22bv8],c2.IRAM[23bv8],c2.IRAM[24bv8],c2.IRAM[25bv8],c2.IRAM[26bv8],c2.IRAM[27bv8], c1.ROM[c1.PC + 1bv16], c2.ROM[c2.PC + 1bv16]);
 	}
 }

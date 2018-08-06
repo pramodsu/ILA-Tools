@@ -321,7 +321,7 @@ def generateInitBlock(model, regs, memories, romdata):
     program += "}\n"
     return program
 
-def generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts):
+def generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts, romdata):
     def pcToStateITE(edges):
         assert len(edges) > 0
         if len(edges) == 1:
@@ -335,11 +335,24 @@ def generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, sta
     program = "next {\n"
     state_updates = regs + memories
     pc_bitwidth = model.getreg('PC').type.bitwidth
+    rom_addrwidth = model.getmem('ROM').type.addrwidth
+    rom_datawidth = model.getmem('ROM').type.datawidth
     program += "\tcase\n"
     for state in state_edges.keys():
         program += "\t(current_state == " + state + ") : {\n"
         program += "\t\tvar current_state_next : states_t;\n"
-        program += "\t\tassert (PC == " + str(state_map[state][0]) + "bv" + str(pc_bitwidth) + ");\n"
+        program += "\t\tassume (PSW[4:3] == 0bv2);\n"
+        program += "\t\tassume (PC == " + str(state_map[state][0]) + "bv" + str(pc_bitwidth) + ");\n"
+        program += "\t\tassume (ROM[" + str(state_map[state][0])  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0]]) + "bv" + str(rom_datawidth) + ");\n"
+        if state_map[state][0] + 1 < len(romdata):
+            program += "\t\tassume (ROM[" + str(state_map[state][0] + 1)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 1]) + "bv" + str(rom_datawidth) + ");\n"
+        if state_map[state][0] + 2 < len(romdata):
+            program += "\t\tassume (ROM[" + str(state_map[state][0] + 2)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 2]) + "bv" + str(rom_datawidth) + ");\n"
+        if state_map[state][0] + 3 < len(romdata):
+            program += "\t\tassume (ROM[" + str(state_map[state][0] + 3)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 3]) + "bv" + str(rom_datawidth) + ");\n"
+ 
+ 
+ 
         for s in state_updates:
             if s != uclid5.getTranslation(state_to_nexts[state][s]):
                 program += "\t\t" + s + "'\t= " + uclid5.getTranslation(state_to_nexts[state][s]) + ";\n"
@@ -359,7 +372,7 @@ def generateUclid5Program(module_name, model, uclid5, regs, memories, romdata, s
     program = "module " + module_name + " {\n"
     program += generateDeclarations(module_name, model, regs, memories, state_map.keys())
     program += generateInitBlock(model, regs, memories, romdata)
-    program += generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts)
+    program += generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts, romdata)
     program += "}\n"
     with open(module_name + ".ucl", "w") as f:
         f.write(program)
