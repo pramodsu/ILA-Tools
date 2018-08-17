@@ -188,27 +188,89 @@ def gen_uclid5(hexfile, enable_ps, filename):
             for s in states:
                 state_nexts[s] = model.importOne(hexfile + '_asts/%s-%s' % (s, state))
             state_to_nexts[state] = state_nexts
-    generateUclid5Program(hexfile.split('.')[0], model, uclid5, regs, memories, data, (state_map, state_edges, ret_set, state_to_nexts))
-    
-    reprs = merge_states(init_state_names, state_edges)
+        
+    (reprs, blocks) = merge_states(init_state_names, state_edges)
+    generateUclid5Program(hexfile.split('.')[0], model, uclid5, regs, memories, data, (state_map, state_edges, ret_set, state_to_nexts, blocks))
+
     for k in sorted(reprs.keys()):
         print '%-20s -> %-20s' % (k, reprs[k])
 
+#def merge_states(init_state_names, state_edges):
+#    reprs = {}
+#    visited = set()
+#    def visit(st, rep):
+#        if st in visited: return
+#        else: visited.add(st)
+#
+#        next_states = state_edges[st]
+#        reprs[st] = rep
+#        if len(next_states) == 1:
+#            visit(next_states[0], rep)
+#        else:
+#            for nxt_st in next_states: visit(nxt_st, nxt_st)
+#    for ist in init_state_names: visit(ist, ist)
+#    return reprs
+#
+
+
 def merge_states(init_state_names, state_edges):
     reprs = {}
-    visited = set()
-    def visit(st, rep):
-        if st in visited: return
-        else: visited.add(st)
+    visited_label = set()
+    visited_repr = set()
+    labels = {} #State to label. Label can be one of {0 for entry, 1 for exit, both or neither}
+    for state in state_edges.keys():
+        labels[state] = set()
+        if state in init_state_names:
+            labels[state].add(0)
+            reprs[state] = state
 
-        next_states = state_edges[st]
-        reprs[st] = rep
-        if len(next_states) == 1:
-            visit(next_states[0], rep)
+    def label(state):
+        if state in visited_label:
+            labels[state].add(0)
+            return
         else:
-            for nxt_st in next_states: visit(nxt_st, nxt_st)
-    for ist in init_state_names: visit(ist, ist)
-    return reprs
+            visited_label.add(state)
+            next_states = state_edges[state]
+            if len(next_states) >= 2:
+                labels[state].add(1)
+                for state in next_states:
+                    labels[state].add(0)
+                    label(state)
+            else:
+                label(next_states[0])
+    
+    def compute_repr(state, prev_state):
+        if state in visited_repr:
+            return
+        else:
+            visited_repr.add(state)
+            if 0 in labels[state]:
+                reprs[state] = (state, 1)
+            if 0 not in labels[state] and 1 in labels[state]:
+                reprs[state] = (prev_state[0], prev_state[1] + 1)
+            if len(labels[state]) == 0:
+                reprs[state] = (prev_state[0], prev_state[1] + 1)
+            for s in state_edges[state]: compute_repr(s, reprs[state])
+
+    for state in init_state_names: label(state)
+    for state in init_state_names: compute_repr(state, None)
+
+    basic_blocks = set()
+    for state in state_edges.keys():
+        basic_blocks.add(reprs[state][0])
+
+    blocks = {block: [] for block in basic_blocks}
+    for block in blocks.keys():
+        for state in reprs.keys():
+            if reprs[state][0] == block:
+                blocks[block].append((state, reprs[state][1]))
+        blocks[block].sort(key=lambda x: x[1])
+
+    return (reprs, blocks)
+    
+                            
+
+
 
 def get_cfg(uclid5, rom, pc, pc_next, inst_next, init_states, romconst, next_exprs):
     stack = init_states
@@ -321,7 +383,27 @@ def generateInitBlock(model, regs, memories, romdata):
     program += "}\n"
     return program
 
-def generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts, romdata):
+def generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts, romdata, blocks):
+    def get_active_vars(block):
+        l = set()
+        for (state, order) in block:
+            l = l.union(active_vars_state(state))
+        return l
+
+    def active_vars_state(state):
+        l = set()
+        for s in state_updates:
+            if s != uclid5.getTranslation(state_to_nexts[state][s]):
+                l.add(s)
+        return l
+
+    def replaceVars(s, used, active_vars):
+        for var in active_vars:
+            if var in s and used[var][0] == True:
+                s = s.replace(var, "block_%s_%s" % (var, used[var][1]))
+
+        return s
+
     def pcToStateITE(edges):
         assert len(edges) > 0
         if len(edges) == 1:
@@ -332,47 +414,94 @@ def generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, sta
             next_pc = "%sbv%d" % (str(state_map[next_state][0]), pc_bitwidth)
             return "(if (PC' == %s) then %s else %s)" % (next_pc, next_state, subexpr)
 
+    def generateCodeForBlock(block, block_repr):
+        program = "\t(current_state == %s) : {\n" % block_repr
+        active_vars = get_active_vars(block)
+        program += "\t\tvar current_state_next : states_t;\n"
+        block_var_map = {}
+        used = {}
+        for state in block:
+            for var in active_vars:
+                if var in memories:
+                    mem_addrwidth = model.getmem(var).type.addrwidth
+                    mem_datawidth = model.getmem(var).type.datawidth
+                    program += "\t\tvar block_%s_%s : [bv%s]bv%s;\n" % (var, state[0], str(mem_addrwidth), str(mem_datawidth))
+                else:
+                    reg_bitwidth = model.getreg(var).type.bitwidth
+                    program += "\t\tvar block_%s_%s : bv%s;\n" % (var, state[0], str(reg_bitwidth))
+                block_var_map[var] = ''
+                used[var] = (False, '')
+        program += "\t\tassume (PC == %sbv%s);\n" % (str(state_map[block_repr][0]), str(pc_bitwidth))
+
+        (entry_state, o) = block[0]
+        (exit_state, o) = block[-1]
+        
+        
+        # Generate all assignments using the block vars and then assign the real vars to them
+        for (state, order) in block:
+            state_vars = active_vars_state(state)
+            for var in active_vars:
+                s = uclid5.getTranslation(state_to_nexts[state][var])
+                
+                if len(block) == 1:
+                    program += "\t\t%s' = %s;\n" % (var, s)
+                elif state == entry_state:
+                    if var in state_vars:
+                        program += "\t\tblock_%s_%s = %s;\n" % (var, state, s)
+                        used[var] = (True, state)
+
+                elif state == exit_state:
+                    program += "\t\t%s' = %s;\n" % (var, replaceVars(s, used, active_vars))
+                else:
+                    if var in state_vars:
+                        program += "\t\tblock_%s_%s = %s;\n" % (var, state,  replaceVars(s, used, active_vars))
+                        used[var] = (True, state)
+
+        program += "\t\tcurrent_state_next = %s;\n" % pcToStateITE(state_edges[state])
+        program += "\t\tcurrent_state' = current_state_next;\n"
+        program += "\t}\n"
+
+        return program
+            
     program = "next {\n"
     state_updates = regs + memories
     pc_bitwidth = model.getreg('PC').type.bitwidth
     rom_addrwidth = model.getmem('ROM').type.addrwidth
     rom_datawidth = model.getmem('ROM').type.datawidth
     program += "\tcase\n"
-    for state in state_edges.keys():
-        program += "\t(current_state == " + state + ") : {\n"
-        program += "\t\tvar current_state_next : states_t;\n"
-        program += "\t\tassume (PSW[4:3] == 0bv2);\n"
-        program += "\t\tassume (PC == " + str(state_map[state][0]) + "bv" + str(pc_bitwidth) + ");\n"
-        program += "\t\tassume (ROM[" + str(state_map[state][0])  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0]]) + "bv" + str(rom_datawidth) + ");\n"
-        if state_map[state][0] + 1 < len(romdata):
-            program += "\t\tassume (ROM[" + str(state_map[state][0] + 1)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 1]) + "bv" + str(rom_datawidth) + ");\n"
-        if state_map[state][0] + 2 < len(romdata):
-            program += "\t\tassume (ROM[" + str(state_map[state][0] + 2)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 2]) + "bv" + str(rom_datawidth) + ");\n"
-        if state_map[state][0] + 3 < len(romdata):
-            program += "\t\tassume (ROM[" + str(state_map[state][0] + 3)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 3]) + "bv" + str(rom_datawidth) + ");\n"
+   # for state in state_edges.keys():
+   #     program += "\t(current_state == " + state + ") : {\n"
+   #     program += "\t\tvar current_state_next : states_t;\n"
+   #     program += "\t\tassume (PSW[4:3] == 0bv2);\n"
+   #     program += "\t\tassume (PC == " + str(state_map[state][0]) + "bv" + str(pc_bitwidth) + ");\n"
+   #     program += "\t\tassume (ROM[" + str(state_map[state][0])  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0]]) + "bv" + str(rom_datawidth) + ");\n"
+   #     if state_map[state][0] + 1 < len(romdata):
+   #         program += "\t\tassume (ROM[" + str(state_map[state][0] + 1)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 1]) + "bv" + str(rom_datawidth) + ");\n"
+   #     if state_map[state][0] + 2 < len(romdata):
+   #         program += "\t\tassume (ROM[" + str(state_map[state][0] + 2)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 2]) + "bv" + str(rom_datawidth) + ");\n"
+   #     if state_map[state][0] + 3 < len(romdata):
+   #         program += "\t\tassume (ROM[" + str(state_map[state][0] + 3)  + "bv" + str(rom_addrwidth) + "] == " + str(romdata[state_map[state][0] + 3]) + "bv" + str(rom_datawidth) + ");\n"
  
  
- 
-        for s in state_updates:
-            if s != uclid5.getTranslation(state_to_nexts[state][s]):
-                program += "\t\t" + s + "'\t= " + uclid5.getTranslation(state_to_nexts[state][s]) + ";\n"
+   #     for s in state_updates:
+   #         if s != uclid5.getTranslation(state_to_nexts[state][s]):
+   #             program += "\t\t" + s + "'\t= " + uclid5.getTranslation(state_to_nexts[state][s]) + ";\n"
         #program += "\t\tassume ("
         #for nxt_s in state_edges[state][:-1]:
         #    program += "current_state_next == " + nxt_s + " || "
         #program += "current_state_next == " + state_edges[state][-1] + ");\n"
-        program += "\t\tcurrent_state_next = %s;\n" % pcToStateITE(state_edges[state])
-        program += "\t\tcurrent_state' = current_state_next;\n"
-        program += "\t}\n"
+    for block in blocks.keys():
+        program += generateCodeForBlock(blocks[block], block)
     program += "\tesac\n"
     program += "}\n"
     return program
 
 def generateUclid5Program(module_name, model, uclid5, regs, memories, romdata, state_graph):
-    (state_map, state_edges, ret_set, state_to_nexts) = state_graph
+    (state_map, state_edges, ret_set, state_to_nexts, blocks) = state_graph
     program = "module " + module_name + " {\n"
     program += generateDeclarations(module_name, model, regs, memories, state_map.keys())
     program += generateInitBlock(model, regs, memories, romdata)
-    program += generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts, romdata)
+    program += generateNextBlock(model, uclid5, regs, memories, state_map, state_edges, state_to_nexts, romdata, blocks)
     program += "}\n"
     with open(module_name + ".ucl", "w") as f:
         f.write(program)
